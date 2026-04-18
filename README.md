@@ -8,7 +8,7 @@ A full-stack web application that classifies your Spotify Liked Songs using AI a
 - **Frontend**: React (Vite)
 - **Backend**: FastAPI (Python)
 - **AI Engine**: Groq (Llama 3.3 70B)
-- **Upcoming**: Full SaaS transition with multi-user SQLAlchemy database.
+
 
 ---
 
