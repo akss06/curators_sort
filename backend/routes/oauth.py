@@ -46,5 +46,5 @@ def oauth_callback(code: str = None, error: str = None):
     try:
         _spotify_auth().get_access_token(code)
         return RedirectResponse(url=FRONTEND_URL)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=400, detail="OAuth token exchange failed")

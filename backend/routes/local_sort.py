@@ -1,18 +1,23 @@
 import json
+import logging
 import threading
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
+from backend.limiter import limiter
 from backend.models import LocalSortStartRequest, SortStartResponse
 from backend.state import create_sort_job, get_sort_job, delete_sort_job
+from backend.utils import validate_local_path
 import engine
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/api/local-sort/start", response_model=SortStartResponse)
-def start_local_sort(req: LocalSortStartRequest):
+@limiter.limit("10/minute")
+def start_local_sort(request: Request, req: LocalSortStartRequest):
     _ai_set       = {"Activity", "Vibe", "Genre"}
     _metadata_set = {"Artist", "Album"}
     pset = set(req.priorities)
@@ -24,6 +29,8 @@ def start_local_sort(req: LocalSortStartRequest):
             "priorities must be exactly AI (Activity, Vibe, Genre) "
             "or exactly Metadata (Artist, Album)",
         )
+
+    validate_local_path(req.folder_path)
 
     job = create_sort_job()
 
@@ -42,8 +49,9 @@ def start_local_sort(req: LocalSortStartRequest):
                 confidence_threshold=req.confidence_threshold,
             )
             job.queue.put({"type": "complete", "logs": logs})
-        except Exception as exc:
-            job.queue.put({"type": "error", "message": str(exc)})
+        except Exception:
+            logger.exception("Local sort worker failed for folder %r", req.folder_path)
+            job.queue.put({"type": "error", "message": "Sort failed — check server logs"})
 
     threading.Thread(target=_worker, daemon=True).start()
     return SortStartResponse(job_id=job.job_id)

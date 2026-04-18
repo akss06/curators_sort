@@ -10,17 +10,22 @@ IMPORTANT: Must be run from the project root so that engine.py resolves
 .cache and .env relative to the working directory, not relative to backend/.
 """
 
-import sys
 import os
+import sys
 
 # Ensure the project root is on the path so `import engine` works
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
 
+from backend.limiter import limiter
 from backend.routes import auth, playlists, sort, review_lab, runs, oauth
 from backend.routes import local_browse, local_sort, local_review_lab
+
+_frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 app = FastAPI(
     title="Curator's Sorter API",
@@ -28,12 +33,15 @@ app = FastAPI(
     version="2.0.0",
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_origins=[_frontend_url],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type"],
 )
 
 app.include_router(auth.router)

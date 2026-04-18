@@ -1,3 +1,6 @@
+import logging
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.models import (
@@ -6,17 +9,34 @@ from backend.models import (
     ResolveResponse, BatchResolveResponse,
 )
 from backend.state import create_ecl_session, get_ecl_session
+from backend.utils import validate_local_path
 import engine
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _check_track_in_review(track_path: str, review_folder: str) -> None:
+    """Reject track paths that resolve outside the session's review folder."""
+    try:
+        resolved_track  = Path(track_path).resolve()
+        resolved_review = Path(review_folder).resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid track path")
+    if not resolved_track.is_relative_to(resolved_review):
+        raise HTTPException(status_code=400, detail="Track path is outside the review folder")
 
 
 @router.get("/api/local-review-lab", response_model=LocalReviewLabResponse)
 def load_local_review_lab(folder_path: str = Query(...)):
+    validate_local_path(folder_path)
     try:
         data = engine.load_local_edge_case_lab(folder_path)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("load_local_edge_case_lab failed for %r", folder_path)
+        raise HTTPException(status_code=500, detail="Failed to load Review Lab")
 
     session_id = create_ecl_session(data)
     return LocalReviewLabResponse(
@@ -33,6 +53,8 @@ def resolve_local_track(req: LocalResolveRequest):
     session = get_ecl_session(req.session_id)
     if session is None:
         raise HTTPException(404, "Session expired — reload the Local Review Lab")
+
+    _check_track_in_review(req.track_uri, session["review_folder"])
 
     ok, dest, created_new = engine.execute_local_move(
         track_path=req.track_uri,
@@ -57,6 +79,9 @@ def resolve_local_batch(req: LocalBatchResolveRequest):
     session = get_ecl_session(req.session_id)
     if session is None:
         raise HTTPException(404, "Session expired — reload the Local Review Lab")
+
+    for uri in req.track_uris:
+        _check_track_in_review(uri, session["review_folder"])
 
     moved = 0
     failed = 0

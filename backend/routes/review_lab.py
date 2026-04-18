@@ -1,3 +1,5 @@
+import logging
+
 import spotipy
 from fastapi import APIRouter, HTTPException
 
@@ -12,6 +14,7 @@ from backend.state import create_ecl_session, get_ecl_session
 import engine
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/api/review-lab", response_model=ReviewLabResponse)
@@ -23,10 +26,14 @@ def load_review_lab():
     """
     try:
         data = engine.load_edge_case_lab()
-    except Exception as exc:
-        if isinstance(exc, spotipy.SpotifyException) and exc.http_status == 429:
+    except spotipy.SpotifyException as exc:
+        if exc.http_status == 429:
             raise HTTPException(status_code=429, detail="Spotify API rate limit reached. Please wait a few minutes and try again.")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception("Spotify error loading Review Lab")
+        raise HTTPException(status_code=500, detail="Failed to load Review Lab")
+    except Exception:
+        logger.exception("Unexpected error loading Review Lab")
+        raise HTTPException(status_code=500, detail="Failed to load Review Lab")
 
     session_id = create_ecl_session(data)
 

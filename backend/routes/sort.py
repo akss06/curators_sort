@@ -7,9 +7,10 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
+from backend.limiter import limiter
 from backend.models import SortStartRequest, SortStartResponse
 from backend.state import create_sort_job, get_sort_job, delete_sort_job
 import engine
@@ -55,7 +56,8 @@ def _save_run(req: SortStartRequest, logs: list[dict]) -> None:
 
 
 @router.post("/api/sort/start", response_model=SortStartResponse)
-def start_sort(req: SortStartRequest):
+@limiter.limit("10/minute")
+def start_sort(request: Request, req: SortStartRequest):
     allowed = {"Activity", "Vibe", "Genre"}
     if set(req.priorities) != allowed or len(req.priorities) != 3:
         raise HTTPException(
@@ -86,8 +88,9 @@ def start_sort(req: SortStartRequest):
             )
             _save_run(req, logs)
             job.queue.put({"type": "complete", "logs": logs})
-        except Exception as exc:
-            job.queue.put({"type": "error", "message": str(exc)})
+        except Exception:
+            logger.exception("Sort worker failed")
+            job.queue.put({"type": "error", "message": "Sort failed — check server logs"})
 
     threading.Thread(target=_worker, daemon=True).start()
     return SortStartResponse(job_id=job.job_id)

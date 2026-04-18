@@ -5,7 +5,7 @@ Pydantic request and response schemas for the Curator's Sorter API.
 """
 
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -163,11 +163,25 @@ class LocalResolveRequest(BaseModel):
     target_folder_name: str = Field(..., min_length=1, max_length=255)
     session_id: str
 
+    @field_validator("target_folder_name")
+    @classmethod
+    def _no_path_traversal(cls, v: str) -> str:
+        if ".." in v or "/" in v or "\\" in v:
+            raise ValueError("Invalid folder name")
+        return v
+
 
 class LocalBatchResolveRequest(BaseModel):
     track_uris: list[str] = Field(..., min_length=1)
     target_folder_name: str = Field(..., min_length=1, max_length=255)
     session_id: str
+
+    @field_validator("target_folder_name")
+    @classmethod
+    def _no_path_traversal(cls, v: str) -> str:
+        if ".." in v or "/" in v or "\\" in v:
+            raise ValueError("Invalid folder name")
+        return v
 
 
 class BatchResolveResponse(BaseModel):
