@@ -57,5 +57,3 @@ Open a new terminal and navigate to the `frontend` directory.
 1. **Sonic Profiling:** The backend dynamically pulls small samples of your existing playlists to inform the AI of your exact musical taste and prevent misclassification.
 2. **AI Classification:** Groq uses a highly strict JSON-enforced prompt to categorize tracks based on your Priority Hierarchy.
 3. **Sorting & Cleanup:** Tracks are added to matching (or newly created) playlists and then cleared from your Liked Songs. Any tracks with low confidence are safely routed to a "Review / Misc" playlist.
-
-*(Note: The application is currently undergoing an architectural upgrade to support a multi-user SaaS model backed by a SQL database.)*
