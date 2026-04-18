@@ -4,6 +4,8 @@ A full-stack web application that classifies your Spotify Liked Songs using AI a
 
 Also supports **Local Files** mode — sort your music folder using AI or metadata (Artist / Album) without any Spotify account.
 
+![Landing page](docs/landing_page.png)
+
 ---
 
 ## Architecture
@@ -70,6 +72,10 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ---
 
+## Spotify Mode
+
+![Spotify mode](docs/spotify_mode.png)
+
 ## How It Works
 
 1. **Sonic Profiling** — the backend samples your existing playlists to build a taste profile, reducing misclassification.
@@ -81,6 +87,8 @@ Open [http://localhost:5173](http://localhost:5173).
 ## Local Files Mode
 
 No Spotify account required. Point the app at a local music folder and sort files into subfolders by AI tags (Activity / Vibe / Genre) or by metadata (Artist / Album). Files in a `Review/` subfolder can be triaged in the Local Review Lab.
+
+![Local files mode](docs/local_file.png)
 
 ---
 
