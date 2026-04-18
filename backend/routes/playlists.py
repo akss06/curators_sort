@@ -1,9 +1,12 @@
+import logging
+
 import spotipy
 from fastapi import APIRouter, HTTPException
 from backend.models import PlaylistsResponse, PlaylistItem
 import engine
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/api/playlists", response_model=PlaylistsResponse)
@@ -33,7 +36,11 @@ def get_playlists():
 
         playlists.sort(key=lambda p: p.name.lower())
         return PlaylistsResponse(playlists=playlists)
-    except Exception as exc:
-        if isinstance(exc, spotipy.SpotifyException) and exc.http_status == 429:
+    except spotipy.SpotifyException as exc:
+        if exc.http_status == 429:
             raise HTTPException(status_code=429, detail="Spotify API rate limit reached. Please wait a few minutes and try again.")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception("Spotify error fetching playlists")
+        raise HTTPException(status_code=500, detail="Failed to fetch playlists")
+    except Exception:
+        logger.exception("Unexpected error fetching playlists")
+        raise HTTPException(status_code=500, detail="Failed to fetch playlists")

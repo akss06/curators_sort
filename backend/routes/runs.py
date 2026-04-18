@@ -1,9 +1,11 @@
 import json
+import logging
 import os
 
 from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 RUNS_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "runs.jsonl")
 
@@ -19,5 +21,6 @@ def get_runs(limit: int = Query(20, ge=1, le=100)):
         return {"runs": runs}
     except FileNotFoundError:
         return {"runs": []}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception:
+        logger.exception("Failed to read runs history")
+        raise HTTPException(status_code=500, detail="Failed to read run history")

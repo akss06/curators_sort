@@ -9,10 +9,13 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import time
+from collections import defaultdict
 from pathlib import Path
 
+import mutagen
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from spotipy.cache_handler import CacheFileHandler
@@ -145,7 +148,6 @@ _METADATA_PRIORITIES: frozenset[str] = frozenset({"Artist", "Album"})
 # ---------------------------------------------------------------------------
 def _parse_groq_retry_after(exc: RateLimitError) -> float:
     """Extract the suggested wait time in seconds from a Groq RateLimitError."""
-    import re
     msg = str(exc)
     m = re.search(r"try again in\s+(?:(\d+)m)?([\d.]+)s", msg)
     if m:
@@ -307,7 +309,7 @@ def get_spotify_client() -> spotipy.Spotify:
             redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback"),
             scope=scope,
             cache_handler=CacheFileHandler(cache_path=".cache"),
-            open_browser=True,
+            open_browser=False,
         )
         # retries=0 disables Spotipy's built-in sleep-and-retry so our own
         # _retry_spotify wrapper controls all backoff logic.
@@ -381,11 +383,15 @@ def fetch_existing_playlists(
 
     results = _retry_spotify(sp.current_user_playlists, limit=50)
     for item in results["items"]:
+        if item is None:
+            continue
         _ingest(item)
 
     while results["next"]:
         results = _retry_spotify(sp.next, results)
         for item in results["items"]:
+            if item is None:
+                continue
             _ingest(item)
 
     logger.info(
@@ -563,7 +569,7 @@ def classify_track(groq_client: Groq, system_prompt: str, track: dict) -> dict:
             max_tokens=150,
         )
         result = json.loads(resp.choices[0].message.content)
-    except (APIError, APIConnectionError, RateLimitError, json.JSONDecodeError) as exc:
+    except (APIError, APIConnectionError, RateLimitError, _TpdExhausted, json.JSONDecodeError) as exc:
         logger.warning("classify_track failed for '%s': %s", track.get("name"), exc)
         return dict(_FALLBACK)
 
@@ -666,7 +672,7 @@ def classify_batch(
 
         return [_validate(r) for r in batch_results]
 
-    except (APIError, APIConnectionError, RateLimitError, json.JSONDecodeError) as exc:
+    except (APIError, APIConnectionError, RateLimitError, _TpdExhausted, json.JSONDecodeError) as exc:
         logger.warning("classify_batch failed (%s) — falling back to individual calls.", exc)
         return [classify_track(groq_client, system_prompt, t) for t in tracks]
 
@@ -725,7 +731,7 @@ def resolve_destination(
         )
         return (REVIEW_PLAYLIST_NAME, "REVIEW")
 
-    return (classification["vibe_category"], "NEW")
+    return (classification["vibe_category"].strip(), "NEW")
 
 
 # ---------------------------------------------------------------------------
@@ -1233,7 +1239,7 @@ JSON only: {{"reasoning":"<≤12 words>","suggested_existing":"<exact or NONE>",
             max_tokens=120,
         )
         result = json.loads(resp.choices[0].message.content)
-    except (APIError, APIConnectionError, RateLimitError, json.JSONDecodeError) as exc:
+    except (APIError, APIConnectionError, RateLimitError, _TpdExhausted, json.JSONDecodeError) as exc:
         logger.warning("analyze_edge_case failed for '%s': %s", track.get("name"), exc)
         return dict(_FALLBACK_ANALYSIS)
 
@@ -1421,7 +1427,6 @@ def load_edge_case_lab() -> dict:
 
     tracks = fetch_review_tracks(sp, review_pid)
 
-    from collections import defaultdict
     artist_track_names: dict[str, list[str]] = defaultdict(list)
     for t in tracks:
         key = t["artist"].strip().lower()
@@ -1577,8 +1582,6 @@ def scan_local_tracks(folder_path: str, limit: int = 200) -> list[dict]:
         List of dicts with keys: id, path, name, artist, album, uri (=path),
         format, duration_ms.
     """
-    import mutagen  # local import so the rest of the module works without it
-
     tracks: list[dict] = []
     try:
         entries = [
@@ -1728,7 +1731,6 @@ def run_local_sorter(
     """Classify and sort local audio files into subfolders.
 
     Mirrors run_sorter() but operates on the filesystem instead of Spotify.
-    After a live run (dry_run=False) each destination folder gets an M3U file.
 
     Args:
         folder_path: Root folder containing the audio files to sort.
@@ -1924,7 +1926,6 @@ def load_local_edge_case_lab(folder_path: str) -> dict:
         if k != LOCAL_REVIEW_FOLDER.lower()
     }
 
-    from collections import defaultdict
     artist_track_names: dict[str, list[str]] = defaultdict(list)
     for t in tracks:
         key = t["artist"].strip().lower()
@@ -1983,6 +1984,9 @@ def execute_local_move(
         dest_filename = os.path.basename(track_path)
         dest_filepath = os.path.join(dest_folder, dest_filename)
 
+        if os.path.exists(dest_filepath):
+            logger.warning("execute_local_move: destination already exists '%s' — skipping.", dest_filepath)
+            return False, "", False
         shutil.move(track_path, dest_filepath)
         dest_display = casing.get(normalized, target_name.strip())
         logger.info(

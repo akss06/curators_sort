@@ -4,6 +4,7 @@
 # Environment variables — never commit
 .env
 .env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -28,6 +29,7 @@ frontend/node_modules/
 .vscode/
 .idea/
 .claude/
+CLAUDE.md
 *.swp
 *.swo
 
@@ -35,10 +37,7 @@ frontend/node_modules/
 .DS_Store
 Thumbs.db
 
-# Database (For upcoming SaaS transition)
-*.db
-*.sqlite
-*.sqlite3
+
 
 # Logs
 *.log
