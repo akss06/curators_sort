@@ -1,0 +1,2 @@
+# Backend dependencies are in backend/requirements.txt
+# Install with: pip install -r backend/requirements.txt
