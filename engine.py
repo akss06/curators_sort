@@ -480,7 +480,7 @@ def build_system_prompt(
         IndexError: If hierarchy contains fewer than 3 elements.
     """
     # Filter out metadata-only priorities (Artist/Album) — they have no AI persona.
-    h = [p for p in user_config["hierarchy"] if p not in _METADATA_PRIORITIES]
+    h = [p for p in (user_config.get("hierarchy") or []) if p not in _METADATA_PRIORITIES]
     # Pad to 3 if user has fewer than 3 AI priorities active.
     while len(h) < 3:
         h.append(h[-1] if h else "Genre")
@@ -496,9 +496,11 @@ def build_system_prompt(
         "CRITICAL: vibe_category must clearly reflect the Priority 1 category type.",
     )
 
+    # Cap at 50 playlists — too many options degrades model classification quality.
+    casing_items = list(casing_map.items())[:50]
     bio_lines = [
         f"  {_build_playlist_bio(display_name, profiles.get(key, []))}"
-        for key, display_name in casing_map.items()
+        for key, display_name in casing_items
     ]
     bios_block = "\n".join(bio_lines) if bio_lines else "  (none)"
 
@@ -717,8 +719,10 @@ def resolve_destination(
     if classification.get("action_recommendation") == "REVIEW":
         return (REVIEW_PLAYLIST_NAME, "REVIEW")
 
-    # Step 3 — normalise candidate
+    # Step 3 — normalise candidate; guard empty string to avoid blank playlist creation
     candidate = classification.get("vibe_category", "").strip().lower()
+    if not candidate:
+        return (REVIEW_PLAYLIST_NAME, "REVIEW")
 
     # Step 4 — match existing playlist (case-insensitive)
     if candidate in existing_playlists:
@@ -1215,9 +1219,10 @@ def analyze_edge_case(
             f"suggest the SAME suggested_new name for all.\n"
         )
 
+    valid_str = ", ".join(actual_playlist_names) if actual_playlist_names else "none"
     system_prompt = f"""\
 Music librarian. Track failed auto-sort — analyze why.
-VALID: {actual_playlist_names}
+VALID: {valid_str}
 PROFILES:
 {bios_block}
 {artist_block}
@@ -1303,9 +1308,10 @@ def analyze_edge_case_batch(
 
     bios_block = "\n".join(bio_lines) if bio_lines else "  (none)"
 
+    valid_str = ", ".join(actual_playlist_names) if actual_playlist_names else "none"
     system_prompt = f"""\
 Music librarian. Tracks failed auto-sort — analyze each.
-VALID: {actual_playlist_names}
+VALID: {valid_str}
 PROFILES:
 {bios_block}
 1. suggested_existing: EXACT name from VALID, or "NONE".
