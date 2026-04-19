@@ -588,6 +588,7 @@ def classify_track(groq_client: Groq, system_prompt: str, track: dict) -> dict:
             logger.warning("Malformed Groq response for '%s' — using fallback.", track.get("name"))
             return _FALLBACK.copy()
 
+    result["confidence_score"] = max(0, min(100, result["confidence_score"]))
     return result
 
 
@@ -642,6 +643,7 @@ def classify_batch(
                 result[key] = int(val)
             elif not isinstance(result[key], typ):
                 return _FALLBACK.copy()
+        result["confidence_score"] = max(0, min(100, result["confidence_score"]))
         return result
 
     user_msg = (
@@ -1046,10 +1048,10 @@ def run_sorter(
                 logs.append({
                     "track":       track["name"],
                     "artist":      track["artist"],
-                    "genre":       classification["primary_genre"],
-                    "vibe":        classification["vibe_category"],
-                    "confidence":  classification["confidence_score"],
-                    "reasoning":   classification["reasoning"],
+                    "genre":       classification.get("primary_genre", "-"),
+                    "vibe":        classification.get("vibe_category", "-"),
+                    "confidence":  classification.get("confidence_score", 0),
+                    "reasoning":   classification.get("reasoning", "-"),
                     "destination": dest_name,
                     "resolution":  res_type,
                     "status":      status,
@@ -1066,7 +1068,7 @@ def run_sorter(
                     "reasoning":   "-",
                     "destination": "-",
                     "resolution":  "ERROR",
-                    "status":      f"ERROR: {exc}",
+                    "status":      "Sort failed — check server logs",
                     "image_url":   track.get("image_url"),
                 })
 
@@ -1875,10 +1877,10 @@ def run_local_sorter(
                 logs.append({
                     "track":       track["name"],
                     "artist":      track["artist"],
-                    "genre":       classification["primary_genre"],
-                    "vibe":        classification["vibe_category"],
-                    "confidence":  classification["confidence_score"],
-                    "reasoning":   classification["reasoning"],
+                    "genre":       classification.get("primary_genre", "-"),
+                    "vibe":        classification.get("vibe_category", "-"),
+                    "confidence":  classification.get("confidence_score", 0),
+                    "reasoning":   classification.get("reasoning", "-"),
                     "destination": dest_name,
                     "resolution":  res_type,
                     "status":      status,
@@ -1895,7 +1897,7 @@ def run_local_sorter(
                     "reasoning":   "-",
                     "destination": "-",
                     "resolution":  "ERROR",
-                    "status":      f"ERROR: {exc}",
+                    "status":      "Sort failed — check server logs",
                     "image_url":   None,
                 })
 
