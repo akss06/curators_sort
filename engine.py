@@ -6,6 +6,7 @@ MUST NOT import streamlit. Zero UI calls.
 """
 
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -571,7 +572,7 @@ def classify_track(groq_client: Groq, system_prompt: str, track: dict) -> dict:
         result = json.loads(resp.choices[0].message.content)
     except (APIError, APIConnectionError, RateLimitError, _TpdExhausted, json.JSONDecodeError) as exc:
         logger.warning("classify_track failed for '%s': %s", track.get("name"), exc)
-        return dict(_FALLBACK)
+        return _FALLBACK.copy()
 
     required: dict[str, type] = {
         "primary_genre": str,
@@ -583,7 +584,7 @@ def classify_track(groq_client: Groq, system_prompt: str, track: dict) -> dict:
     for key, typ in required.items():
         if key not in result or not isinstance(result[key], typ):
             logger.warning("Malformed Groq response for '%s' — using fallback.", track.get("name"))
-            return dict(_FALLBACK)
+            return _FALLBACK.copy()
 
     return result
 
@@ -633,12 +634,12 @@ def classify_batch(
         for key, typ in required_keys.items():
             val = result.get(key)
             if val is None:
-                return dict(_FALLBACK)
+                return _FALLBACK.copy()
             # confidence_score sometimes comes back as float
             if key == "confidence_score" and isinstance(val, float):
                 result[key] = int(val)
             elif not isinstance(result[key], typ):
-                return dict(_FALLBACK)
+                return _FALLBACK.copy()
         return result
 
     user_msg = (
@@ -709,15 +710,15 @@ def resolve_destination(
         Nothing.
     """
     # Step 1 — confidence guardrail
-    if classification["confidence_score"] < confidence_threshold:
+    if classification.get("confidence_score", 0) < confidence_threshold:
         return (REVIEW_PLAYLIST_NAME, "REVIEW")
 
     # Step 2 — explicit REVIEW recommendation
-    if classification["action_recommendation"] == "REVIEW":
+    if classification.get("action_recommendation") == "REVIEW":
         return (REVIEW_PLAYLIST_NAME, "REVIEW")
 
     # Step 3 — normalise candidate
-    candidate = classification["vibe_category"].strip().lower()
+    candidate = classification.get("vibe_category", "").strip().lower()
 
     # Step 4 — match existing playlist (case-insensitive)
     if candidate in existing_playlists:
@@ -731,7 +732,7 @@ def resolve_destination(
         )
         return (REVIEW_PLAYLIST_NAME, "REVIEW")
 
-    return (classification["vibe_category"].strip(), "NEW")
+    return (classification.get("vibe_category", "").strip(), "NEW")
 
 
 # ---------------------------------------------------------------------------
@@ -1241,13 +1242,13 @@ JSON only: {{"reasoning":"<≤12 words>","suggested_existing":"<exact or NONE>",
         result = json.loads(resp.choices[0].message.content)
     except (APIError, APIConnectionError, RateLimitError, _TpdExhausted, json.JSONDecodeError) as exc:
         logger.warning("analyze_edge_case failed for '%s': %s", track.get("name"), exc)
-        return dict(_FALLBACK_ANALYSIS)
+        return _FALLBACK_ANALYSIS.copy()
 
     required = {"reasoning": str, "suggested_existing": str, "suggested_new": str}
     for key, typ in required.items():
         if key not in result or not isinstance(result[key], typ):
             logger.warning("Malformed analysis response for '%s'.", track.get("name"))
-            return dict(_FALLBACK_ANALYSIS)
+            return _FALLBACK_ANALYSIS.copy()
 
     # Python-level guardrail: reject any suggested_existing that isn't in the
     # actual playlist list — the model can hallucinate even with explicit instructions.
@@ -1326,7 +1327,7 @@ JSON only: {{"analyses":[{{"reasoning":"...","suggested_existing":"...","suggest
 
     def _validate_analysis(r: dict) -> dict:
         if not all(isinstance(r.get(k), str) for k in ("reasoning", "suggested_existing", "suggested_new")):
-            return dict(_FALLBACK_ANALYSIS)
+            return _FALLBACK_ANALYSIS.copy()
         raw = r["suggested_existing"].strip()
         if raw.upper() == "NONE" or not raw:
             r["suggested_existing"] = "NONE"
@@ -1547,12 +1548,12 @@ def browse_directory(path: str) -> dict:
                     sub_audio = sum(
                         1 for f in os.scandir(entry.path)
                         if f.is_file()
-                        and Path(f.name).suffix.lower() in LOCAL_FORMATS
+                        and os.path.splitext(f.name)[1].lower() in LOCAL_FORMATS
                     )
                 except OSError:
                     sub_audio = 0
                 dirs.append({"name": entry.name, "path": entry.path, "audio_count": sub_audio})
-            elif entry.is_file() and Path(entry.name).suffix.lower() in LOCAL_FORMATS:
+            elif entry.is_file() and os.path.splitext(entry.name)[1].lower() in LOCAL_FORMATS:
                 audio_count += 1
     except OSError as exc:
         logger.warning("browse_directory error for '%s': %s", path, exc)
@@ -1582,20 +1583,27 @@ def scan_local_tracks(folder_path: str, limit: int = 200) -> list[dict]:
         List of dicts with keys: id, path, name, artist, album, uri (=path),
         format, duration_ms.
     """
+    folder_path = str(Path(folder_path).resolve())
+    if not os.path.isdir(folder_path):
+        logger.warning("scan_local_tracks: not a directory: '%s'", folder_path)
+        return []
+
     tracks: list[dict] = []
     try:
-        entries = [
+        all_entries = (
             e for e in os.scandir(folder_path)
-            if e.is_file() and Path(e.name).suffix.lower() in LOCAL_FORMATS
-        ]
+            if e.is_file() and os.path.splitext(e.name)[1].lower() in LOCAL_FORMATS
+        )
+        entries = list(itertools.islice(all_entries, limit))
     except OSError as exc:
         logger.error("scan_local_tracks: cannot read '%s': %s", folder_path, exc)
         return []
 
-    for entry in entries[:limit]:
+    for entry in entries:
         path = entry.path
-        ext = Path(entry.name).suffix.lower().lstrip(".")
-        name = Path(entry.name).stem
+        suffix = os.path.splitext(entry.name)[1].lower()
+        ext = suffix.lstrip(".")
+        name = os.path.splitext(entry.name)[0]
         artist = "Unknown"
         album = "Unknown"
         duration_ms: int | None = None
@@ -1745,6 +1753,11 @@ def run_local_sorter(
     Returns:
         List of log-entry dicts (same schema as run_sorter).
     """
+    folder_path = str(Path(folder_path).resolve())
+    if not os.path.isdir(folder_path):
+        logger.error("run_local_sorter: not a directory: '%s'", folder_path)
+        return []
+
     groq_client = get_groq_client()
     existing, casing = fetch_local_playlists(folder_path)
     tracks = scan_local_tracks(folder_path, limit)
@@ -1904,6 +1917,7 @@ def load_local_edge_case_lab(folder_path: str) -> dict:
         Dict with keys: tracks, analyses, review_folder, existing, casing,
         base_path.
     """
+    folder_path = str(Path(folder_path).resolve())
     review_folder = os.path.join(folder_path, LOCAL_REVIEW_FOLDER)
     existing, casing = fetch_local_playlists(folder_path)
 
